@@ -7,17 +7,21 @@ import (
     "github.com/imroc/req"
     "io/ioutil"
     "time"
+    "errors"
 )
 
 var (
   kong_admin_enpoint = os.Getenv("KONG_ADMIN_API_ENDPOINT")
   timeout time.Duration = 5
+  errConsumerAlreadyExist = errors.New("Consumer already exist.\n")
+  errUnexpectedStatusCode = errors.New("Unexpected status code.\n")
+  err_return = errors.New("default error.\n")
 )
 
 type consumer struct {
-  createdAt int64  `json:"created_at"`
+  CreatedAt int64  `json:"created_at"`
   Username  string `json:"username"`
-  id        string `json:"id"`
+  Id        string `json:"id"`
 }
 
 type consumers struct {
@@ -34,15 +38,80 @@ func CreateConsumer(consumer_name string) (*consumer, error) {
     "username": consumer_name ,
   }
 
-  r, _ := req.Post(url, param)
-  resp := r.Response()
-  body, _ := ioutil.ReadAll(resp.Body)
-  err := json.Unmarshal(body, &c)
-  if(err != nil){
-      fmt.Println("whoops:", err)
+  r, err_req := req.Post(url, param)
+
+  if(err_req != nil){
+
+      fmt.Println("Error while querying Kong API: ", err_req)
+      err_return = err_req
+
+  } else {
+
+    resp := r.Response()
+
+    if(resp.StatusCode == 201){
+
+      fmt.Printf("Consumer %s successfully created.\n", consumer_name)
+      body, _ := ioutil.ReadAll(resp.Body)
+      err_json := json.Unmarshal(body, &c)
+
+      if(err_json != nil){
+
+          fmt.Println("whoops:", err_json)
+          err_return = err_json
+
+      }
+    } else if (resp.StatusCode == 409){
+
+      fmt.Printf("Consumer %s already created.\n", consumer_name)
+      err_return = errConsumerAlreadyExist
+
+    } else {
+      fmt.Printf("Error unexpected status code %v.\n", resp.StatusCode)
+      err_return = errUnexpectedStatusCode
+    }
   }
 
-  return c, err
+  return c, err_return
+}
+
+func GetConsumer(consumer_name string) (*consumer, error) {
+  var c = new(consumer)
+
+  url := kong_admin_enpoint + "/consumers/" + consumer_name
+  req.SetTimeout(timeout * time.Second)
+
+  r, err_req := req.Get(url)
+
+  if(err_req != nil){
+
+      fmt.Println("Error while querying Kong API: ", err_req)
+      err_return = err_req
+
+  } else {
+
+    resp := r.Response()
+    if(resp.StatusCode == 200) {
+
+      body, _ := ioutil.ReadAll(resp.Body)
+      err_json := json.Unmarshal(body, &c)
+
+      if(err_json != nil){
+
+          fmt.Println("whoops:", err_json)
+          err_return = err_json
+
+      }
+
+    } else {
+      fmt.Printf("Error unexpected status code %v.\n", resp.StatusCode)
+      err_return = errUnexpectedStatusCode
+    }
+
+  }
+
+
+  return c, err_return
 }
 
 func ListConsumers() (*consumers, error) {
@@ -61,5 +130,4 @@ func ListConsumers() (*consumers, error) {
   }
 
   return cs, err
-
 }
